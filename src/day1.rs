@@ -1,6 +1,6 @@
 ﻿use std::fs;
 
-pub fn parse_input(line: &str) -> Option<(i32, i32)> {
+pub fn parse_input_line(line: &str) -> Option<(i32, i32)> {
     let line = line.trim();
     if line.is_empty() {
         None
@@ -38,18 +38,11 @@ pub fn part2(left: &Vec<i32>, right: &Vec<i32>) -> i64 {
 }
 
 pub fn day1() {
-    let input = fs::read_to_string("inputs/day1.txt").expect("Could not read input");
-    let lines = input.lines();
-
-    let mut left: Vec<i32> = Vec::new();
-    let mut right: Vec<i32> = Vec::new();
-
-    for line in lines {
-        parse_input(line).map(|(l, r)| {
-            left.push(l);
-            right.push(r);
-        });
-    }
+    let (mut left, mut right): (Vec<_>, Vec<_>) = fs::read_to_string("inputs/day1.txt")
+        .expect("Could not read input")
+        .lines()
+        .filter_map(parse_input_line)
+        .unzip();
 
     left.sort();
     right.sort();
