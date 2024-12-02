@@ -1,6 +1,6 @@
 ﻿use std::fs;
 
-pub fn parse_input_line(line: &str) -> Option<(i32, i32)> {
+fn parse_input_line(line: &str) -> Option<(i32, i32)> {
     let line = line.trim();
     if line.is_empty() {
         None
@@ -10,7 +10,7 @@ pub fn parse_input_line(line: &str) -> Option<(i32, i32)> {
     }
 }
 
-pub fn part1(left: &Vec<i32>, right: &Vec<i32>) -> i32 {
+fn part1(left: &Vec<i32>, right: &Vec<i32>) -> i32 {
     let mut diff_sum = 0;
 
     for i in 0..left.len() {
@@ -20,7 +20,7 @@ pub fn part1(left: &Vec<i32>, right: &Vec<i32>) -> i32 {
     diff_sum
 }
 
-pub fn part2(left: &Vec<i32>, right: &Vec<i32>) -> i64 {
+fn part2(left: &Vec<i32>, right: &Vec<i32>) -> i64 {
     let mut score: i64 = 0;
 
     let mut ridx = 0;
