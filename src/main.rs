@@ -15,9 +15,12 @@ mod day13;
 mod day14;
 mod day15;
 mod day16;
+mod day17;
+mod day18;
+mod day19;
 
-use day16::*;
+use day19::*;
 
 fn main() {
-    day16();
+    day19();
 }
