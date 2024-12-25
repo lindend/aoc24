@@ -1,11 +1,10 @@
 ﻿use crate::util::vec2::Vec2;
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::fs;
 
-#[derive(Clone, PartialEq, Eq)]
-#[derive(Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 enum Input {
     Left,
     Right,
@@ -39,10 +38,10 @@ impl Display for Input {
     }
 }
 
-
-#[derive(PartialEq, Eq)]
-struct State<'a, T: Clone> {
+#[derive(PartialEq, Eq, Debug)]
+struct State<'a, T: Clone + std::fmt::Debug> {
     cost: i32,
+    heuristic: i32,
     pos: Vec2<i32>,
     prev_pos: Vec2<i32>,
     targets: &'a [Vec2<i32>],
@@ -50,29 +49,37 @@ struct State<'a, T: Clone> {
     cost_state: T,
 }
 
-impl<'a, T: Eq + PartialEq + Clone> Ord for State<'a, T> {
+impl<'a, T: Eq + PartialEq + Clone + Debug> Ord for State<'a, T> {
     fn cmp(&self, other: &Self) -> Ordering {
-        other.cost.cmp(&self.cost)
+        other.heuristic.cmp(&self.heuristic)
     }
 }
 
-impl<'a, T: Eq + PartialEq + Clone> PartialOrd for State<'a, T> {
+impl<'a, T: Eq + PartialEq + Clone + Debug> PartialOrd for State<'a, T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-fn shortest_path<T, ST: Eq + PartialEq + Clone>(
+#[derive(Eq, PartialEq, Clone, Hash, Copy, Debug)]
+struct CostState {
+    keypad_pos: Vec2<i32>,
+    dirpad_0_pos: Vec2<i32>,
+    dirpad_1_pos: Vec2<i32>,
+}
+
+fn shortest_path<T, ST: Eq + PartialEq + Clone + Debug>(
     start: Vec2<i32>,
     targets: &Vec<Vec2<i32>>,
     obstacles: &HashSet<Vec2<i32>>,
     cost_fn: fn(Vec2<i32>, Vec2<i32>, &ST, &mut T) -> (i32, ST),
     cost_context: &mut T,
     cost_state: ST,
-) -> (i32, Vec<Vec2<i32>>) {
+) -> (i32, Vec<Vec2<i32>>, ST) {
     let mut heads = BinaryHeap::new();
     heads.push(State {
         cost: 0,
+        heuristic: (start - targets[0]).manhattan_distance(),
         pos: start,
         prev_pos: start,
         targets: targets.as_slice(),
@@ -96,7 +103,6 @@ fn shortest_path<T, ST: Eq + PartialEq + Clone>(
         let mut cost = head.cost;
         let mut path = head.path.clone();
 
-
         if head.pos == targets[0] {
             cost += 1;
             path.push(Vec2::zero());
@@ -104,7 +110,7 @@ fn shortest_path<T, ST: Eq + PartialEq + Clone>(
         }
 
         if targets.is_empty() {
-            return (head.cost, path);
+            return (head.cost, path, head.cost_state);
         }
 
         for &dir in &all_dirs {
@@ -123,9 +129,9 @@ fn shortest_path<T, ST: Eq + PartialEq + Clone>(
 
             path.push(dir);
 
-
             heads.push(State {
                 cost,
+                heuristic: cost + (pos - targets[0]).manhattan_distance(),
                 pos,
                 prev_pos: head.pos,
                 targets,
@@ -136,39 +142,63 @@ fn shortest_path<T, ST: Eq + PartialEq + Clone>(
     }
 }
 
-
-fn keypad_sequences(code: &str, memo: &mut HashMap<(Vec2<i32>, Input, i32), i32>) -> (i32, Vec<Vec2<i32>>) {
-    let targets = code.chars().map(|c| match c {
-        '7' => Vec2::new(0, 0),
-        '8' => Vec2::new(1, 0),
-        '9' => Vec2::new(2, 0),
-        '4' => Vec2::new(0, 1),
-        '5' => Vec2::new(1, 1),
-        '6' => Vec2::new(2, 1),
-        '1' => Vec2::new(0, 2),
-        '2' => Vec2::new(1, 2),
-        '3' => Vec2::new(2, 2),
-        '0' => Vec2::new(1, 3),
-        'A' => Vec2::new(2, 3),
-        _ => panic!("Invalid input `{c}`"),
-    }).collect();
-
+fn keypad_sequences(
+    code: &str,
+    memo: &mut HashMap<(CostState, PadId, Vec2<i32>), (i32, CostState)>,
+) -> (i32, Vec<Vec2<i32>>) {
+    let targets = code
+        .chars()
+        .map(|c| match c {
+            '7' => Vec2::new(0, 0),
+            '8' => Vec2::new(1, 0),
+            '9' => Vec2::new(2, 0),
+            '4' => Vec2::new(0, 1),
+            '5' => Vec2::new(1, 1),
+            '6' => Vec2::new(2, 1),
+            '1' => Vec2::new(0, 2),
+            '2' => Vec2::new(1, 2),
+            '3' => Vec2::new(2, 2),
+            '0' => Vec2::new(1, 3),
+            'A' => Vec2::new(2, 3),
+            _ => panic!("Invalid input `{c}`"),
+        })
+        .collect();
     let mut obstacles = HashSet::new();
     obstacles.insert(Vec2::new(0, 3));
-    shortest_path(
+    let (cost, path, _) = shortest_path(
         Vec2::new(2, 3),
         &targets,
         &obstacles,
-        |from, to, &(kp0_state, kp1_state), context|
-            dir_pad_sequences(kp0_state, kp1_state, to - from, true, context),
+        |from, to, &state, context| {
+            let (cost, mut state) = dir_pad_sequences(&state, to - from, PadId::Dirpad0, context);
+            println!("Navigated a key");
+            state.keypad_pos = to;
+            (cost + 1, state)
+        },
         memo,
-        (Vec2::new(2, 0), Vec2::new(2, 0)),
-    )
+        CostState {
+            keypad_pos: Vec2::new(2, 3),
+            dirpad_0_pos: Vec2::new(2, 0),
+            dirpad_1_pos: Vec2::new(2, 0),
+        },
+    );
+    (cost, path)
 }
 
-fn dir_pad_sequences(kp0_start: Vec2<i32>, kp1_start: Vec2<i32>, delta: Vec2<i32>, recurse: bool, memo: &mut HashMap<(Vec2<i32>, Input, i32), i32>) -> (i32, (Vec2<i32>, Vec2<i32>)) {
+#[derive(PartialEq, Eq, Clone, Hash)]
+enum PadId {
+    Numpad,
+    Dirpad0,
+    Dirpad1,
+}
+
+fn dir_pad_sequences(
+    state: &CostState,
+    delta: Vec2<i32>,
+    id: PadId,
+    memo: &mut HashMap<(CostState, PadId, Vec2<i32>), (i32, CostState)>,
+) -> (i32, CostState) {
     let input = Input::from_vec(delta);
-    let level = if recurse { 1 } else { 2 };
     let target = match input {
         Input::Up => Vec2::new(1, 0),
         Input::A => Vec2::new(2, 0),
@@ -177,33 +207,48 @@ fn dir_pad_sequences(kp0_start: Vec2<i32>, kp1_start: Vec2<i32>, delta: Vec2<i32
         Input::Right => Vec2::new(2, 1),
     };
 
-    // if let Some(len) = memo.get(&(kp0_start, kp1_start, input, level)) {
-    //     return (*len, target);
-    // }
+    if let Some((cost, new_state)) = memo.get(&(*state, id.clone(), delta)) {
+        return (*cost, new_state.clone());
+    }
 
     let mut obstacles = HashSet::new();
     obstacles.insert(Vec2::zero());
 
-    let start = if level == 1 {
-        kp0_start
+    let start = if id == PadId::Dirpad0 {
+        println!("Navigating {input}");
+        state.dirpad_0_pos
     } else {
-        kp1_start
+        state.dirpad_1_pos
     };
 
-    let (c, _) = shortest_path(
+    let (c, _, new_state) = shortest_path(
         start,
         &vec![target],
         &obstacles,
-        if recurse {
-            |from: Vec2<i32>, to, &(kp0_start, kp1_start), context| dir_pad_sequences(kp0_start, kp1_start, to - from, false, context)
+        if id == PadId::Dirpad0 {
+            |from: Vec2<i32>, to, state, context| {
+                let (c, mut state) = dir_pad_sequences(state, to - from, PadId::Dirpad1, context);
+                state.dirpad_0_pos = to;
+                (c + 1, state)
+            }
         } else {
-            |_, _, &state, _| (1, state)
+            |_, to, &state, _| {
+                (
+                    1,
+                    CostState {
+                        keypad_pos: state.keypad_pos,
+                        dirpad_0_pos: state.dirpad_0_pos,
+                        dirpad_1_pos: to,
+                    },
+                )
+            }
         },
         memo,
-        (kp0_start, kp1_start),
+        *state,
     );
-    (c, (kp0_start, kp1_start))
-    // memo.insert((delta, level), s);
+    memo.insert((*state, id, delta), (c, new_state));
+
+    (c, new_state.clone())
 }
 
 fn part1(codes: &Vec<&str>) -> i64 {
@@ -211,12 +256,17 @@ fn part1(codes: &Vec<&str>) -> i64 {
     let mut memo = HashMap::new();
     for &code in codes {
         let (code_len, path) = keypad_sequences(code, &mut memo);
-        let path: Vec<_> = path.iter().map(|&p| Input::from_vec(p).to_string()).collect();
+        let path: Vec<_> = path
+            .iter()
+            .map(|&p| Input::from_vec(p).to_string())
+            .collect();
         let path = path.join("");
 
         println!("Found sequence {code} len {code_len} {path}");
 
-        let num_code: i64 = code[..code.len() - 1].parse().expect("Could not parse numeric part of code");
+        let num_code: i64 = code[..code.len() - 1]
+            .parse()
+            .expect("Could not parse numeric part of code");
         let complexity = code_len as i64 * num_code;
         total_complexity += complexity;
     }
@@ -226,8 +276,7 @@ fn part1(codes: &Vec<&str>) -> i64 {
 }
 
 pub fn day21() {
-    let input = fs::read_to_string("inputs/day21.txt")
-        .expect("Could not load input");
+    let input = fs::read_to_string("inputs/day21.txt").expect("Could not load input");
 
     let codes = input.lines().collect();
 
@@ -237,13 +286,28 @@ pub fn day21() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn test_p1() {
         let input = "029A
 980A
 179A
 456A
-379A".lines();
+379A"
+            .lines();
+        let res = part1(&input.collect());
+        assert_eq!(126384, res);
+    }
+
+    #[test]
+    fn test_p1_2() {
+        let input = "208A
+586A
+341A
+463A
+593A
+        "
+        .lines();
         let res = part1(&input.collect());
         assert_eq!(126384, res);
     }

@@ -29,7 +29,9 @@ fn repeat<T: Clone>(num_times: i32, when_positive: T, when_negative: T) -> Vec<T
         iter::repeat(when_positive)
     } else {
         iter::repeat(when_negative)
-    }.take(num_times.abs() as usize).collect()
+    }
+    .take(num_times.abs() as usize)
+    .collect()
 }
 
 fn l_r_permutations<T: Clone>(left: &[Vec<T>], right: &[Vec<T>]) -> Vec<Vec<T>> {
@@ -55,33 +57,27 @@ fn l_r_permutations<T: Clone>(left: &[Vec<T>], right: &[Vec<T>]) -> Vec<Vec<T>> 
         v
     });
 
-    ls.chain(rs)
-        .collect()
+    ls.chain(rs).collect()
 }
 
-fn input_sequences(targets: &Vec<Vec2<i32>>, pos: Vec2<i32>, bad: Vec2<i32>, optimal: &HashMap<(Vec2<i32>, Vec2<i32>), Vec<Input>>) -> Vec<Input> {
+fn input_sequences(targets: &Vec<Vec2<i32>>, pos: Vec2<i32>, bad: Vec2<i32>) -> Vec<Input> {
     let mut current = pos;
 
     let mut inputs: Vec<Input> = Vec::new();
 
     for &target in targets {
-        if let Some(opt) = optimal.get(&(current, target)) {
-            inputs.extend(opt.iter().cloned());
+        let delta = target - current;
+
+        let x_moves = repeat(delta.x, Input::Right, Input::Left);
+        let y_moves = repeat(delta.y, Input::Down, Input::Up);
+
+        if current.y == bad.y && target.x == bad.x {
+            inputs.extend(y_moves.iter().cloned());
+            inputs.extend(x_moves.iter().cloned());
         } else {
-            let delta = target - current;
-
-            let x_moves = repeat(delta.x, Input::Right, Input::Left);
-            let y_moves = repeat(delta.y, Input::Down, Input::Up);
-
-            if current.y == bad.y && target.x == bad.x {
-                inputs.extend(y_moves.iter().cloned());
-                inputs.extend(x_moves.iter().cloned());
-            } else {
-                inputs.extend(x_moves.iter().cloned());
-                inputs.extend(y_moves.iter().cloned());
-            };
-        }
-
+            inputs.extend(x_moves.iter().cloned());
+            inputs.extend(y_moves.iter().cloned());
+        };
 
         inputs.push(Input::A);
         current = target;
@@ -106,7 +102,7 @@ fn keypad_sequences(code: &str) -> Vec<Input> {
         _ => panic!("Invalid input `{c}`"),
     });
 
-    input_sequences(&targets.collect(), Vec2::new(2, 3), Vec2::new(0, 3), &HashMap::new())
+    input_sequences(&targets.collect(), Vec2::new(2, 3), Vec2::new(0, 3))
 }
 
 fn dir_pad_sequences(code: &Vec<Input>) -> Vec<Input> {
@@ -118,10 +114,7 @@ fn dir_pad_sequences(code: &Vec<Input>) -> Vec<Input> {
         Input::Right => Vec2::new(2, 1),
     });
 
-    let mut opt = HashMap::new();
-    opt.insert((Vec2::new(2, 0), Vec2::new(0, 1)), vec![Input::Down, Input::Left, Input::Left]);
-
-    input_sequences(&targets.collect(), Vec2::new(2, 0), Vec2::new(0, 0), &opt)
+    input_sequences(&targets.collect(), Vec2::new(2, 0), Vec2::new(0, 0))
 }
 
 fn part1(codes: &Vec<&str>) -> i64 {
@@ -131,9 +124,17 @@ fn part1(codes: &Vec<&str>) -> i64 {
         let dpr1s: Vec<_> = dir_pad_sequences(&ks);
         let dpms: Vec<_> = dir_pad_sequences(&dpr1s);
 
-        println!("{code}: {}", dpms.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(""));
+        println!(
+            "{code}: {}",
+            dpms.iter()
+                .map(|c| c.to_string())
+                .collect::<Vec<_>>()
+                .join("")
+        );
 
-        let num_code: i64 = code[..code.len() - 1].parse().expect("Could not parse numeric part of code");
+        let num_code: i64 = code[..code.len() - 1]
+            .parse()
+            .expect("Could not parse numeric part of code");
         let complexity = dpms.len() as i64 * num_code;
         total_complexity += complexity;
     }
@@ -143,8 +144,7 @@ fn part1(codes: &Vec<&str>) -> i64 {
 }
 
 pub fn day21() {
-    let input = fs::read_to_string("inputs/day21.txt")
-        .expect("Could not load input");
+    let input = fs::read_to_string("inputs/day21.txt").expect("Could not load input");
 
     let codes = input.lines().collect();
 
@@ -160,7 +160,20 @@ mod tests {
 980A
 179A
 456A
-379A".lines();
+379A"
+            .lines();
+        let res = part1(&input.collect());
+        assert_eq!(126384, res);
+    }
+
+    #[test]
+    fn test_p1_2() {
+        let input = "208A
+586A
+341A
+463A
+593A"
+            .lines();
         let res = part1(&input.collect());
         assert_eq!(126384, res);
     }
