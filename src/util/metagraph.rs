@@ -6,7 +6,7 @@
 // #[derive(PartialEq, Eq, Hash, Clone)]
 // struct Edge {
 //     target: Node,
-//     link: Box<dyn Link>,
+//     link: Box<dyn Link + Clone>,
 // }
 
 // impl Edge {
@@ -26,12 +26,12 @@
 // }
 
 // trait Link {
-//     fn traverse(&mut self, target: &Node) -> i32;
+//     fn traverse(&mut self, target: &Node) -> (i32, Vec<Node>);
 // }
 
 // impl Link for CostLink {
-//     fn traverse(&mut self, _: &Node) -> i32 {
-//         self.cost
+//     fn traverse(&mut self, _: &Node) -> (i32, Vec<Node>) {
+//         (self.cost, Vec::new())
 //     }
 // }
 
@@ -44,13 +44,13 @@
 //     path: Vec<Node>,
 // }
 
-// impl<'a, T: Eq + PartialEq + Clone> Ord for State<'a> {
+// impl<'a> Ord for State<'a> {
 //     fn cmp(&self, other: &Self) -> Ordering {
 //         other.cost.cmp(&self.cost)
 //     }
 // }
 
-// impl<'a, T: Eq + PartialEq + Clone> PartialOrd for State<'a, T> {
+// impl<'a> PartialOrd for State<'a> {
 //     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
 //         Some(self.cmp(other))
 //     }
@@ -65,8 +65,8 @@
 //         let mut heads = BinaryHeap::new();
 //         heads.push(State {
 //             cost: 0,
-//             node: *start,
-//             prev_node: *start,
+//             node: start.clone(),
+//             prev_node: start.clone(),
 //             targets: targets.as_slice(),
 //             path: Vec::new(),
 //         });
@@ -99,7 +99,7 @@
 
 //                 let mut path = path.clone();
 
-//                 path.push(new_node);
+//                 path.push(new_node.clone());
 
 //                 heads.push(State {
 //                     cost,
@@ -114,9 +114,10 @@
 // }
 
 // impl Link for Metagraph {
-//     fn traverse(&self, target: &Node) -> (i32, Node) {
-//         let cost = self.shortest_path(&self.current_node, &vec![target]).0;
-//         (cost, target.clone())
+//     fn traverse(&mut self, target: &Node) -> (i32, Vec<Node>) {
+//         let (cost, path) = self.shortest_path(&self.current_node, &vec![target]);
+//         self.current_node = target.clone();
+//         (cost, path)
 //     }
 // }
 
@@ -126,7 +127,30 @@
 
 //     #[test]
 //     fn test1() {
-//         let mg = Metagraph {};
+//         let dp = Metagraph::new();
+//         let left = dp.add_node("<");
+//         let up = dp.add_node("^");
+//         let right = dp.add_node(">");
+//         let down = dp.add_node("v");
+//         let dp_a = dp.add_node("A");
+
+//         dp.add_edge(left, down, CostLink { cost: 1 });
+//         dp.add_edge(down, right, CostLink { cost: 1 });
+//         dp.add_edge(down, up, CostLink { cost: 1 });
+//         dp.add_edge(up, dp_a, CostLink { cost: 1 });
+//         dp.add_edge(right, dp_a, CostLink { cost: 1 });
+
+//         let kp = Metagraph::new();
+//         kp.add_node("0");
+//         kp.add_node("1");
+//         kp.add_node("2");
+//         kp.add_node("3");
+//         kp.add_node("4");
+//         kp.add_node("5");
+//         kp.add_node("6");
+//         kp.add_node("A");
+
+//         kp.add_edge(kp_0, kp_1, dp.target_link(vec![right, dp_a]));
 
 //         mg.shortest_path();
 //     }

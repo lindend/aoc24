@@ -73,6 +73,7 @@ fn shortest_path<T, ST: Eq + PartialEq + Clone + Debug>(
     targets: &Vec<Vec2<i32>>,
     obstacles: &HashSet<Vec2<i32>>,
     cost_fn: fn(Vec2<i32>, Vec2<i32>, &ST, &mut T) -> (i32, ST),
+    target_fn: fn(&ST, &mut T) -> (i32, ST),
     cost_context: &mut T,
     cost_state: ST,
 ) -> (i32, Vec<Vec2<i32>>, ST) {
@@ -101,16 +102,18 @@ fn shortest_path<T, ST: Eq + PartialEq + Clone + Debug>(
         assert!(!targets.is_empty());
 
         let mut cost = head.cost;
-        let mut path = head.path.clone();
+        let path = head.path.clone();
+        let mut cost_state = head.cost_state;
 
         if head.pos == targets[0] {
-            cost += 1;
-            path.push(Vec2::zero());
             targets = &targets[1..];
+            let (target_cost, new_state) = target_fn(&cost_state, cost_context);
+            cost += target_cost;
+            cost_state = new_state;
         }
 
         if targets.is_empty() {
-            return (head.cost, path, head.cost_state);
+            return (head.cost, path, cost_state);
         }
 
         for &dir in &all_dirs {
@@ -119,7 +122,7 @@ fn shortest_path<T, ST: Eq + PartialEq + Clone + Debug>(
                 continue;
             }
 
-            let (c, cost_state) = cost_fn(head.pos, pos, &head.cost_state, cost_context);
+            let (c, cost_state) = cost_fn(head.pos, pos, &cost_state, cost_context);
             let cost = cost + c;
 
             if obstacles.contains(&pos) {
@@ -139,6 +142,16 @@ fn shortest_path<T, ST: Eq + PartialEq + Clone + Debug>(
                 cost_state,
             });
         }
+    }
+}
+
+fn get_dir_pad_target(input: &Input) -> Vec2<i32> {
+    match input {
+        Input::Up => Vec2::new(1, 0),
+        Input::A => Vec2::new(2, 0),
+        Input::Left => Vec2::new(0, 1),
+        Input::Down => Vec2::new(1, 1),
+        Input::Right => Vec2::new(2, 1),
     }
 }
 
@@ -170,9 +183,18 @@ fn keypad_sequences(
         &targets,
         &obstacles,
         |from, to, &state, context| {
-            let (cost, mut state) = dir_pad_sequences(&state, to - from, PadId::Dirpad0, context);
-            println!("Navigated a key");
+            let input = Input::from_vec(to - from);
+            let target = get_dir_pad_target(&input);
+            let (cost, mut state) = dir_pad_sequences(&state, target, PadId::Dirpad0, context);
             state.keypad_pos = to;
+            (cost + 1, state)
+        },
+        |&state, context| {
+            // Navigate to A on the dir pad
+            let (cost, mut state) =
+                dir_pad_sequences(&state, Vec2::new(2, 0), PadId::Dirpad0, context);
+            state.dirpad_0_pos = Vec2::new(2, 0);
+            // Increase cost by 1 for for pressing A
             (cost + 1, state)
         },
         memo,
@@ -194,20 +216,11 @@ enum PadId {
 
 fn dir_pad_sequences(
     state: &CostState,
-    delta: Vec2<i32>,
+    target: Vec2<i32>,
     id: PadId,
     memo: &mut HashMap<(CostState, PadId, Vec2<i32>), (i32, CostState)>,
 ) -> (i32, CostState) {
-    let input = Input::from_vec(delta);
-    let target = match input {
-        Input::Up => Vec2::new(1, 0),
-        Input::A => Vec2::new(2, 0),
-        Input::Left => Vec2::new(0, 1),
-        Input::Down => Vec2::new(1, 1),
-        Input::Right => Vec2::new(2, 1),
-    };
-
-    if let Some((cost, new_state)) = memo.get(&(*state, id.clone(), delta)) {
+    if let Some((cost, new_state)) = memo.get(&(*state, id.clone(), target)) {
         return (*cost, new_state.clone());
     }
 
@@ -215,7 +228,6 @@ fn dir_pad_sequences(
     obstacles.insert(Vec2::zero());
 
     let start = if id == PadId::Dirpad0 {
-        println!("Navigating {input}");
         state.dirpad_0_pos
     } else {
         state.dirpad_1_pos
@@ -243,10 +255,18 @@ fn dir_pad_sequences(
                 )
             }
         },
+        if id == PadId::Dirpad0 {
+            |&state, context| {
+                // Navigate to A on the dir pad
+                dir_pad_sequences(&state, Vec2::new(2, 0), PadId::Dirpad1, context)
+            }
+        } else {
+            |&state, context| (0, state)
+        },
         memo,
         *state,
     );
-    memo.insert((*state, id, delta), (c, new_state));
+    memo.insert((*state, id, target), (c, new_state));
 
     (c, new_state.clone())
 }
@@ -312,3 +332,13 @@ mod tests {
         assert_eq!(126384, res);
     }
 }
+
+/*
+
+029A: <vA<AA>>^AvAA<^A>A<v<A>>^AvA^A<vA>^A<v<A>^A>AAvA^A<v<A>A>^AAAvA<^A>A
+980A: <v<A>>^AAAvA^A<vA<AA>>^AvAA<^A>A<v<A>A>^AAAvA<^A>A<vA>^A<A>A
+179A: <v<A>>^A<vA<A>>^AAvAA<^A>A<v<A>>^AAvA^A<vA>^AA<A>A<v<A>A>^AAAvA<^A>A
+456A: <v<A>>^AA<vA<A>>^AAvAA<^A>A<vA>^A<A>A<vA>^A<A>A<v<A>A>^AAvA<^A>A
+379A: <v<A>>^AvA^A<vA<AA>>^AAvA<^A>AAvA^A<vA>^AA<A>A<v<A>A>^AAAvA<^A>A
+
+*/

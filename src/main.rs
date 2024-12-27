@@ -14,6 +14,7 @@ mod day20;
 mod day21;
 mod day21_2;
 mod day21_3;
+mod day21_4;
 mod day22;
 mod day23;
 mod day24;
@@ -26,8 +27,8 @@ mod day7;
 mod day8;
 mod day9;
 mod util;
-use day25::*;
+use day21_4::*;
 
 fn main() {
-    day25();
+    day21();
 }
