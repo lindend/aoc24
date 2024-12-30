@@ -48,8 +48,8 @@ fn repeat<T: Clone>(num_times: i32, when_positive: T, when_negative: T) -> Vec<T
     } else {
         iter::repeat(when_negative)
     }
-    .take(num_times.abs() as usize)
-    .collect()
+        .take(num_times.abs() as usize)
+        .collect()
 }
 
 fn is_bad(pos: Vec2<i32>, inputs: &Vec<Input>, bad: Vec2<i32>) -> bool {
@@ -190,6 +190,7 @@ fn dir_pad_sequences(code2: &Vec<Input>, level: i32) -> Vec<Input> {
                 println!("Cache hit! level {level}");
             }
             result.extend(res.clone());
+            continue;
         }
 
         let targets: Vec<_> = split
