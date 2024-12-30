@@ -77,78 +77,56 @@ fn input_sequences<F>(
     pos: Vec2<i32>,
     bad: Vec2<i32>,
     cmd_processor: F,
-    prev_inputs: &Vec<Input>,
 ) -> Option<Vec<Input>>
 where
     F: Copy + Fn(&Vec<Input>) -> Vec<Input>,
 {
-    if targets.is_empty() {
-        return Some(cmd_processor(&prev_inputs));
-    }
+    let mut pos = pos;
+    let mut possible_sequences: Vec<Vec<Input>> = vec![Vec::new()];
 
-    let target = targets[0];
+    for &target in targets {
+        let delta = target - pos;
 
-    let delta = target - pos;
+        let x_moves = repeat(delta.x, Input::Right, Input::Left);
+        let y_moves = repeat(delta.y, Input::Down, Input::Up);
 
-    let x_moves = repeat(delta.x, Input::Right, Input::Left);
-    let y_moves = repeat(delta.y, Input::Down, Input::Up);
+        let mut combinations = Vec::new();
 
-    let mut combinations = Vec::new();
-
-    {
-        let mut inputs = y_moves.clone();
-        inputs.extend(x_moves.clone());
-        inputs.push(Input::A);
-        combinations.push(inputs);
-    }
-
-    {
-        let mut inputs = x_moves.clone();
-        inputs.extend(y_moves.clone());
-        inputs.push(Input::A);
-        combinations.push(inputs);
-    }
-
-    if y_moves.len() > 1 {
-        let mut inputs = Vec::new();
-        inputs.extend(y_moves[..1].iter().cloned());
-        inputs.extend(x_moves.clone());
-        inputs.extend(y_moves[1..].iter().cloned());
-        inputs.push(Input::A);
-        combinations.push(inputs);
-    }
-
-    if x_moves.len() > 1 {
-        let mut inputs = Vec::new();
-        inputs.extend(x_moves[..1].iter().cloned());
-        inputs.extend(y_moves.clone());
-        inputs.extend(x_moves[1..].iter().cloned());
-        inputs.push(Input::A);
-        combinations.push(inputs);
-    }
-
-    let mut best_combination: Option<Vec<Input>> = None;
-
-    for combination in &combinations {
-        if is_bad(pos, &combination, bad) {
-            continue;
+        {
+            let mut inputs = y_moves.clone();
+            inputs.extend(x_moves.clone());
+            inputs.push(Input::A);
+            combinations.push(inputs);
         }
 
-        let mut all_inputs = prev_inputs.clone();
-        all_inputs.extend(combination.iter().cloned());
-        let input = input_sequences(&targets[1..], target, bad, cmd_processor, &all_inputs);
-        if let Some(input) = input {
-            if let Some(ref best) = best_combination {
-                if input.len() < best.len() {
-                    best_combination = Some(input);
-                }
-            } else {
-                best_combination = Some(input);
+        if delta.x != 0 && delta.y != 0 {
+            let mut inputs = x_moves.clone();
+            inputs.extend(y_moves.clone());
+            inputs.push(Input::A);
+            combinations.push(inputs);
+        }
+
+        let prev_inputs = possible_sequences;
+        possible_sequences = Vec::new();
+
+        for combination in &combinations {
+            if is_bad(pos, &combination, bad) {
+                continue;
             }
+
+            let mut all_inputs = prev_inputs.clone();
+            all_inputs
+                .iter_mut()
+                .for_each(|ai| ai.extend(combination.iter().cloned()));
+            possible_sequences.extend(all_inputs);
         }
+        pos = target;
     }
 
-    best_combination
+    possible_sequences
+        .iter()
+        .map(|s| cmd_processor(s))
+        .min_by_key(|k| k.len())
 }
 
 fn keypad_sequences(code: &str, levels: i32) -> Vec<Input> {
@@ -175,105 +153,79 @@ fn keypad_sequences(code: &str, levels: i32) -> Vec<Input> {
     let mut curr_pos = Vec2::new(2, 3);
 
     for target in targets {
-        let inputs = input_sequences(
-            &[target],
-            curr_pos,
-            Vec2::new(0, 3),
-            dir_pad_0_sequences,
-            &Vec::new(),
-        );
+        let inputs = input_sequences(&[target], curr_pos, Vec2::new(0, 3), |inputs| {
+            dir_pad_sequences(inputs, levels - 1)
+        });
         res.extend(inputs.unwrap());
         curr_pos = target;
     }
     res
 }
 
-fn hash(code: &Vec<Input>) -> u64 {
+fn hash(code: &[Input]) -> u64 {
     let mut hasher = DefaultHasher::new();
     code.hash(&mut hasher);
     hasher.finish()
 }
 
-fn dir_pad_0_sequences(code: &Vec<Input>) -> Vec<Input> {
-    {
-        let memo = GLOBAL_MEMO.lock().unwrap();
-        let key = (1, hash(code));
-        if let Some(res) = memo.get(&key) {
-            return res.clone();
+fn dir_pad_sequences(code2: &Vec<Input>, level: i32) -> Vec<Input> {
+    assert!(level >= 0);
+    let splits = code2.split_inclusive(|c| *c == Input::A);
+
+    let mut result = Vec::new();
+
+    for split in splits {
+        let cache_level = level;
+        if level > 5 {
+            println!("Dir pad level {level}, code: {code2:?}, split: {split:?}");
         }
+        let cached = {
+            let memo = GLOBAL_MEMO.lock().unwrap();
+            let key = (cache_level, hash(split));
+            memo.get(&key).map(|c| c.clone())
+        };
+
+        if let Some(res) = cached {
+            if level > 5 {
+                println!("Cache hit! level {level}");
+            }
+            result.extend(res.clone());
+        }
+
+        let targets: Vec<_> = split
+            .iter()
+            .map(|c| match c {
+                Input::Up => Vec2::new(1, 0),
+                Input::A => Vec2::new(2, 0),
+                Input::Left => Vec2::new(0, 1),
+                Input::Down => Vec2::new(1, 1),
+                Input::Right => Vec2::new(2, 1),
+            })
+            .collect();
+
+        let res = input_sequences(&targets, Vec2::new(2, 0), Vec2::new(0, 0), |inputs| {
+            if level == 0 {
+                inputs.clone()
+            } else {
+                dir_pad_sequences(inputs, level - 1)
+            }
+        });
+
+        {
+            let mut memo = GLOBAL_MEMO.lock().unwrap();
+            let key = (cache_level, hash(split));
+            memo.insert(key, res.clone().unwrap().clone());
+        }
+
+        result.extend(res.unwrap());
     }
-
-    let mut hasher = DefaultHasher::new();
-    code.hash(&mut hasher);
-    let targets: Vec<_> = code
-        .iter()
-        .map(|c| match c {
-            Input::Up => Vec2::new(1, 0),
-            Input::A => Vec2::new(2, 0),
-            Input::Left => Vec2::new(0, 1),
-            Input::Down => Vec2::new(1, 1),
-            Input::Right => Vec2::new(2, 1),
-        })
-        .collect();
-
-    println!("Dir pad 0 processing code: {code:?}");
-    let res = input_sequences(
-        &targets,
-        Vec2::new(2, 0),
-        Vec2::new(0, 0),
-        dir_pad_1_sequences,
-        &Vec::new(),
-    );
-
-    {
-        let mut memo = GLOBAL_MEMO.lock().unwrap();
-        let key = (1, hash(code));
-        memo.insert(key, res.clone().unwrap().clone());
-    }
-
-    res.unwrap()
+    result
 }
 
-fn dir_pad_1_sequences(code: &Vec<Input>) -> Vec<Input> {
-    {
-        let memo = GLOBAL_MEMO.lock().unwrap();
-        let key = (2, hash(code));
-        if let Some(res) = memo.get(&key) {
-            return res.clone();
-        }
-    }
-
-    let targets: Vec<_> = code
-        .iter()
-        .map(|c| match c {
-            Input::Up => Vec2::new(1, 0),
-            Input::A => Vec2::new(2, 0),
-            Input::Left => Vec2::new(0, 1),
-            Input::Down => Vec2::new(1, 1),
-            Input::Right => Vec2::new(2, 1),
-        })
-        .collect();
-
-    println!("Dir pad 1 processing code: {code:?}");
-    let res = input_sequences(
-        &targets,
-        Vec2::new(2, 0),
-        Vec2::new(0, 0),
-        |input: &Vec<Input>| input.clone(),
-        &Vec::new(),
-    );
-    {
-        let mut memo = GLOBAL_MEMO.lock().unwrap();
-        let key = (2, hash(code));
-        memo.insert(key, res.clone().unwrap().clone());
-    }
-    res.unwrap()
-}
-
-fn part1(codes: &Vec<&str>) -> i64 {
+fn enter_code(codes: &Vec<&str>, levels: i32) -> i64 {
     let mut total_complexity = 0;
     for &code in codes {
-        let ks = keypad_sequences(code);
+        let ks = keypad_sequences(code, levels);
 
         println!(
             "{code}: {}",
@@ -296,12 +248,22 @@ fn part1(codes: &Vec<&str>) -> i64 {
     total_complexity
 }
 
+fn part1(codes: &Vec<&str>) -> i64 {
+    enter_code(codes, 2)
+}
+
+fn part2(codes: &Vec<&str>) -> i64 {
+    enter_code(codes, 25)
+    // 1014360
+}
+
 pub fn day21() {
     let input = fs::read_to_string("inputs/day21.txt").expect("Could not load input");
 
     let codes = input.lines().collect();
 
     println!("Part 1: {}", part1(&codes));
+    println!("Part 2: {}", part2(&codes));
 }
 
 #[cfg(test)]
@@ -335,20 +297,26 @@ mod tests {
 
 /*
 
+029A: v<A<AA>>^AvAA^<A>Av<<A>>^AvA^Av<A^>A<Av<A>>^AAAvA^AvA^Av<A<A>>^AAAAA<Av>A^A
+980A: v<<A>>^Av<<A>>^AAAAAvA^AvA^Av<A<AA>>^AvAA^<A>Av<A<AA>>^Av<A<AA>>^AvAA^<A>AvAA^<A>Av<A<A>>^AAAAA<Av>A^Av<A<A>>^Av<A<A>>^AAAAA<Av>A^A<Av>A^Av<A^>Av<A^>A<A>A<A>A
+179A: v<<A>>^Av<<A>>^Av<A<A>>^Av<A<A>>^AAAvAA^<A>AvAA^<A>Av<<A>>^Av<<A>>^AAAvA^AvA^Av<A^>Av<A^>AAA<A>A<A>Av<A<A>>^Av<A<A>>^AAAAA<Av>A^A<Av>A^Av<A<A>>^Av<A<A>>^AAAAA<Av>A^A<Av>A^A
+456A: v<<A>>^Av<<A>>^AAAv<A<A>>^Av<A<A>>^AAAvAA^<A>AvAA^<A>Av<A^>Av<A^>A<A>A<A>Av<A^>Av<A^>A<A>A<A>Av<A^>Av<A^>A<A>A<A>Av<A^>Av<A^>A<A>A<A>Av<A<A>>^Av<A<A>>^AAA<Av>A^A<Av>A^A
+379A: v<<A>>^AvA^Av<<A>>^Av<<A>>^AvA^AvA^Av<A<AA>>^Av<A<AA>>^AAAvA^<A>AvA^<A>AAAvA^AvA^Av<A^>Av<A^>AAA<A>A<A>Av<A^>Av<A^>AAA<A>A<A>Av<A<A>>^Av<A<A>>^AAAAA<Av>A^A<Av>A^Av<A<A>>^Av<A<A>>^AAAAA<Av>A^A<Av>A^A
+
+
+REAL:
+
 029A: <vA<AA>>^AvAA<^A>A<v<A>>^AvA^A<vA>^A<v<A>^A>AAvA^A<v<A>A>^AAAvA<^A>A
-029A: <vA<AA>>^AvAA<^A>Av<<A>>^AvA^A<vA>^Av<<A>^A>AAvA^Av<<A>A>^AAAvA<^A>A
-
 980A: <v<A>>^AAAvA^A<vA<AA>>^AvAA<^A>A<v<A>A>^AAAvA<^A>A<vA>^A<A>A
-980A: v<<A>>^AAAvA^A<vA<AA>>^AvAA<^A>Av<<A>A>^AAAvA<^A>A<vA>^A<A>A
-
 179A: <v<A>>^A<vA<A>>^AAvAA<^A>A<v<A>>^AAvA^A<vA>^AA<A>A<v<A>A>^AAAvA<^A>A
-179A: v<<A>>^A<vA<A>>^AAvAA<^A>Av<<A>>^AAvA^A<vA>^AA<A>Av<<A>A>^AAAvA<^A>A
-
 456A: <v<A>>^AA<vA<A>>^AAvAA<^A>A<vA>^A<A>A<vA>^A<A>A<v<A>A>^AAvA<^A>A
-456A: v<<A>>^AA<vA<A>>^AAvAA<^A>A<vA>^A<A>A<vA>^A<A>Av<<A>A>^AAvA<^A>A
-
 379A: <v<A>>^AvA^A<vA<AA>>^AAvA<^A>AAvA^A<vA>^AA<A>A<v<A>A>^AAAvA<^A>A
-379A: v<<A>>^AvA^A<vA<AA>>^AAvA<^A>AAvA^A<vA>^AA<A>Av<<A>A>^AAAvA<^A>A
+
+COMBINED:
+029A: v<A<AA>>^AvAA^<A>Av<<A>>^AvA^Av<A^>A <Av<A>>^AAAvA^AvA^Av<A<A>>^AAAAA<Av>A^A
+029A: <vA<AA>>^AvAA<^A>A<v<A>>^AvA^A<vA>^A <v<A>^A>AAvA^A<v<A>A>^AAAvA<^A>A
+
+
 
 
 */
