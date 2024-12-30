@@ -5,7 +5,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::{LazyLock, Mutex};
 use std::{fs, iter};
 
-type Memo = HashMap<(i32, u64), Vec<Input>>;
+type Memo = HashMap<(i32, u64), i64>;
 
 static GLOBAL_MEMO: LazyLock<Mutex<Memo>> = LazyLock::new(|| Mutex::new(Memo::new()));
 
@@ -77,9 +77,9 @@ fn input_sequences<F>(
     pos: Vec2<i32>,
     bad: Vec2<i32>,
     cmd_processor: F,
-) -> Option<Vec<Input>>
+) -> Option<i64>
 where
-    F: Copy + Fn(&Vec<Input>) -> Vec<Input>,
+    F: Copy + Fn(&Vec<Input>) -> i64,
 {
     let mut pos = pos;
     let mut possible_sequences: Vec<Vec<Input>> = vec![Vec::new()];
@@ -126,10 +126,10 @@ where
     possible_sequences
         .iter()
         .map(|s| cmd_processor(s))
-        .min_by_key(|k| k.len())
+        .min()
 }
 
-fn keypad_sequences(code: &str, levels: i32) -> Vec<Input> {
+fn keypad_sequences(code: &str, levels: i32) -> i64 {
     let targets: Vec<_> = code
         .chars()
         .map(|c| match c {
@@ -148,15 +148,15 @@ fn keypad_sequences(code: &str, levels: i32) -> Vec<Input> {
         })
         .collect();
 
-    let mut res = Vec::new();
+    let mut res = 0i64;
 
     let mut curr_pos = Vec2::new(2, 3);
 
     for target in targets {
-        let inputs = input_sequences(&[target], curr_pos, Vec2::new(0, 3), |inputs| {
+        let input_len = input_sequences(&[target], curr_pos, Vec2::new(0, 3), |inputs| {
             dir_pad_sequences(inputs, levels - 1)
         });
-        res.extend(inputs.unwrap());
+        res += input_len.unwrap();
         curr_pos = target;
     }
     res
@@ -168,11 +168,11 @@ fn hash(code: &[Input]) -> u64 {
     hasher.finish()
 }
 
-fn dir_pad_sequences(code2: &Vec<Input>, level: i32) -> Vec<Input> {
+fn dir_pad_sequences(code2: &Vec<Input>, level: i32) -> i64 {
     assert!(level >= 0);
     let splits = code2.split_inclusive(|c| *c == Input::A);
 
-    let mut result = Vec::new();
+    let mut result = 0i64;
 
     for split in splits {
         let cache_level = level;
@@ -185,11 +185,11 @@ fn dir_pad_sequences(code2: &Vec<Input>, level: i32) -> Vec<Input> {
             memo.get(&key).map(|c| c.clone())
         };
 
-        if let Some(res) = cached {
+        if let Some(cache_item) = cached {
             if level > 5 {
                 println!("Cache hit! level {level}");
             }
-            result.extend(res.clone());
+            result += cache_item;
             continue;
         }
 
@@ -206,7 +206,7 @@ fn dir_pad_sequences(code2: &Vec<Input>, level: i32) -> Vec<Input> {
 
         let res = input_sequences(&targets, Vec2::new(2, 0), Vec2::new(0, 0), |inputs| {
             if level == 0 {
-                inputs.clone()
+                inputs.len() as i64
             } else {
                 dir_pad_sequences(inputs, level - 1)
             }
@@ -215,10 +215,10 @@ fn dir_pad_sequences(code2: &Vec<Input>, level: i32) -> Vec<Input> {
         {
             let mut memo = GLOBAL_MEMO.lock().unwrap();
             let key = (cache_level, hash(split));
-            memo.insert(key, res.clone().unwrap().clone());
+            memo.insert(key, res.unwrap());
         }
 
-        result.extend(res.unwrap());
+        result += res.unwrap();
     }
     result
 }
@@ -228,18 +228,11 @@ fn enter_code(codes: &Vec<&str>, levels: i32) -> i64 {
     for &code in codes {
         let ks = keypad_sequences(code, levels);
 
-        println!(
-            "{code}: {}",
-            ks.iter()
-                .map(|c| c.to_string())
-                .collect::<Vec<_>>()
-                .join("")
-        );
 
         let num_code: i64 = code[..code.len() - 1]
             .parse()
             .expect("Could not parse numeric part of code");
-        let complexity = ks.len() as i64 * num_code;
+        let complexity = ks * num_code;
         total_complexity += complexity;
     }
     // Too high: 157596
